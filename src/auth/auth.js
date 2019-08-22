@@ -476,6 +476,16 @@ router.post('/refetch-token', async (req, res, next) => {
 
 router.get('/user', async (req, res, next) => {
 
+  // get jwt token
+
+  // verify jwt token is OK
+
+  // get user_id from jwt claim
+
+  // get user from hasura (include ${USER_FIELDS.join('\n')})
+
+  // return user as json response
+
   // validate username and password
   const schema = Joi.object().keys({
     username: Joi.string().required(),
@@ -487,8 +497,8 @@ router.get('/user', async (req, res, next) => {
   if (error) {
     return next(Boom.badRequest(error.details[0].message));
   }
-  
-  const { username, password } = value
+
+  const { username, password } = value;
 
   let query = `
   query (
