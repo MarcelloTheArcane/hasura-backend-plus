@@ -66,6 +66,87 @@ export default {
 }
 ```
 
+`./pages/login.vue` or default login page:
+
+```vue
+<template>
+  <div>
+    <input v-model="email" type="email" placeholder="Email"><br>
+    <input v-model="password" type="password" placeholder="Password"><br>
+    <button @click="login">
+      Login
+    </button>
+  </div>
+</template>
+
+<script>
+export default {
+  name: 'TheLogin',
+  data () {
+    return {
+      username: '',
+      password: '',
+    }
+  },
+  methods: {
+    async login () {
+      try {
+        await this.$auth.loginWith('local', {
+          username: this.username,
+          password: this.password,
+        })
+        
+        this.$store.dispatch('auth-refresh/start')
+      } catch (err) {
+        console.err(err.message)
+      }
+    },
+  },
+}
+```
+
+`./store/auth-refresh.js`:
+
+```js
+export const state = () => {
+  return {
+    refreshInterval: null,
+  }
+}
+
+export const mutations = {
+  UPDATE_REFRESH_INTERVAL(state, interval) {
+    state.refreshInterval = interval
+  },
+}
+
+export const actions = {
+  start ({ commit, dispatch }) {
+    const jwt = parseJwt('') // get jwt from auth module
+    const interval = jwt.exp - jwt.iat // Expires - Issued At = lifetime
+    commit('UPDATE_REFRESH_INTERVAL', interval)
+    
+    dispatch('startFetchLoop')
+  },
+  startFetchLoop({ state }) {
+    setInterval(function () {
+      // refresh token
+    }, state.refreshInterval)
+  },
+}
+
+// https://stackoverflow.com/a/38552302
+function parseJwt (token) {
+  const base64Url = token.split('.')[1]
+  const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+  const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+    return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+  }).join(''))
+
+  return JSON.parse(jsonPayload)
+}
+```
+
 add the following to the default export on any page you wish to authenticate, as per [`@nuxtjs/auth` docs](https://auth.nuxtjs.org/guide/middleware.html):
 
 ```js
