@@ -61,7 +61,7 @@ const get_claims_from_request = (req) => {
   }
 };
 
-router.get('/fn/get-download-url/*', (req, res, next) => {
+router.get('/fn/get-download-url/*', async (req, res, next) => {
   const key = `${req.params[0]}`;
 
   // if not admin, do JWT checks
@@ -84,24 +84,20 @@ router.get('/fn/get-download-url/*', (req, res, next) => {
     Key: key,
   };
 
-  s3.headObject(params, async function (err, data) {
-
-    if (err) {
-      console.error(err);
-      return next(Boom.forbidden());
-    }
+  try {
+    const data = await s3.headObject(params);
 
     let { token } = data.Metadata;
 
+    // no token exists. Add new token
     if (!token) {
-
       token = uuidv4();
 
       const bucket_decoded = decodeURIComponent(S3_BUCKET);
       const key_decoded = decodeURIComponent(key);
 
       // copy the object with the updated token
-      var params = {
+      const params = {
         Bucket: bucket_decoded,
         Key: key_decoded,
         CopySource: encodeURIComponent(`${bucket_decoded}/${key_decoded}`),
@@ -111,23 +107,20 @@ router.get('/fn/get-download-url/*', (req, res, next) => {
         },
         MetadataDirective: 'REPLACE',
       };
-
-      // no token exists. Add new token
-      try {
-        var data = await s3.copyObject(params).promise();
-      } catch (e) {
-        return next(Boom.badImplementation('Could not generate token'));
-      }
+      
+      await s3.copyObject(params).promise();
     }
-
+    
     return res.send({
       token,
     });
-  });
+  } catch (e) {
+    console.error(e);
+    return next(Boom.forbidden());
+  }
 });
 
-router.delete('/file/*', (req, res, next) => {
-
+router.delete('/file/*', async (req, res, next) => {
   const key = `${req.params[0]}`;
 
   // if not admin, do JWT checks
@@ -145,37 +138,31 @@ router.delete('/file/*', (req, res, next) => {
     }
   }
 
-  const params = {
-    Bucket: S3_BUCKET,
-    Key: key,
-  };
-
-  s3.deleteObject(params, (err, data) => {
-    if (err) {
-      console.error(err, err.stack);  // error
-      return next(Boom.badImplementation('could not delete file'));
-    }
-
-    res.send('OK');
-  });
+  try {
+    const params = {
+      Bucket: S3_BUCKET,
+      Key: key,
+    };
+    
+    await s3.deleteObject(params).promise();
+    
+    return res.send('OK');
+  } catch (e) {
+    console.error(e, e.stack);
+    return next(Boom.badImplementation('could not delete file'));
+  }
 });
 
-router.get('/file/*', (req, res, next) => {
-  const key = `${req.params[0]}`;
+router.get('/file/*', async (req, res, next) => {
+  try {
+    const key = `${req.params[0]}`;
+    const token = req.query.token;
+    const params = {
+      Bucket: S3_BUCKET,
+      Key: key,
+    };
 
-  const token = req.query.token;
-
-  const params = {
-    Bucket: S3_BUCKET,
-    Key: key,
-  };
-
-  s3.headObject(params, function (err, data) {
-
-    if (err) {
-      console.error(err);
-      return next(Boom.forbidden());
-    }
+    const data = await s3.headObject(params).promise();
 
     if (data.Metadata.token !== token) {
       return next(Boom.forbidden());
@@ -184,7 +171,7 @@ router.get('/file/*', (req, res, next) => {
     const stream = s3.getObject(params).createReadStream();
 
     // forward errors
-    stream.on('error', function error(err) {
+    stream.on('error', function error (err) {
       console.error(err);
       return next(Boom.badImplementation());
     });
@@ -199,9 +186,11 @@ router.get('/file/*', (req, res, next) => {
 
     //Pipe the s3 object to the response
     stream.pipe(res);
-  });
+  } catch (e) {
+    console.error(e);
+    return next(Boom.forbidden());
+  }
 });
-
 
 const upload = multer({
   storage: multerS3({
@@ -210,7 +199,7 @@ const upload = multer({
     metadata: (req, file, cb) => {
 
       // TODO: Metadata
-      // req.headres (metadata)
+      // req.headers (metadata)
 
       cb(null, {
         token: req.token,
@@ -220,12 +209,11 @@ const upload = multer({
       cb(null, file.mimetype);
     },
     key: function (req, file, cb) {
-
       // generate unique file names to be saved on the server
       const extension = mime.extension(file.mimetype);
 
       req.saved_file = {
-        originalname  : file.originalname,
+        originalname: file.originalname,
         mimetype: file.mimetype,
         encoding: file.encoding,
         key: `${req.file_path}`,
@@ -239,19 +227,17 @@ const upload = multer({
 });
 
 const upload_auth = (req, res, next) => {
-
   // path to where the file will be uploaded to
   try {
     req.file_path = req.headers['x-path']
-    .replace(/^\/+/g, '') // remove /
-    .replace(/^ +/g, ' '); // replace multiple (and single) spaces to single space.
+      .replace(/^\/+/g, '') // remove leading /
+      .replace(/^ +/g, ' '); // replace multiple spaces with single space.
   } catch (e) {
     return next(Boom.badImplementation('x-path header incorrect'));
   }
 
   // if not admin, do JWT checks
   if (!admin_secret_is_ok(req)) {
-
     const claims = get_claims_from_request(req);
 
     if (claims === undefined) {
