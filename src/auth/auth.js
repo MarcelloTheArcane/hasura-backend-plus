@@ -138,10 +138,14 @@ router.post('/refresh-token', async (req, res, next) => {
 router.post('/logout', async (req, res, next) => {
   // get refresh token
   const schema = Joi.object().keys({
-    refresh_token: Joi.string().uuid().required(),
+    refresh_token: Joi.string().uuid(),
   });
 
   const { error, value } = schema.validate(req.body);
+
+  if (error) {
+    return next(Boom.badRequest(error.details[0].message));
+  }
 
   const { refresh_token } = value;
 
@@ -163,12 +167,11 @@ router.post('/logout', async (req, res, next) => {
   let hasura_data;
   try {
     hasura_data = await graphql_client.request(mutation, {
-      user_id: user.id,
+      refresh_token: refresh_token,
     });
   } catch (e) {
     console.error(e);
-    // console.error('Error connection to GraphQL');
-    return next(Boom.unauthorized('Unable to delete refresh token'));
+    // let this error pass. Just log out the user by sending https status code 200 back
   }
 
   res.send('OK');
@@ -182,6 +185,10 @@ router.post('/logout-all', async (req, res, next) => {
   });
 
   const { error, value } = schema.validate(req.body);
+
+  if (error) {
+    return next(Boom.badRequest(error.details[0].message));
+  }
 
   const { refresh_token } = value;
 
